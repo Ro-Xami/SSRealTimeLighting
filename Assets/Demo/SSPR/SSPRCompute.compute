@@ -1,0 +1,87 @@
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#pragma kernel SSPRCompute
+#pragma kernel SSPRHole
+
+RWTexture2D<float4> _SSPRTexture;
+RWTexture2D<float> _SSPRHeightBuffer;
+
+TEXTURE2D_X_FLOAT(_CameraDepthTexture);
+SAMPLER(sampler_CameraDepthTexture);
+TEXTURE2D_X(_CameraOpaqueTexture);
+SAMPLER(sampler_CameraOpaqueTexture);
+
+float _height;
+float4 _SSPRSize;
+
+float4 DepthToPositionWS(float2 screenSpaceUV)
+{
+    half depth = _CameraDepthTexture.SampleLevel(sampler_CameraDepthTexture, screenSpaceUV, 0).r;
+    
+    float4 ndc = float4(screenSpaceUV.x * 2 - 1, screenSpaceUV.y * 2 - 1, depth, 1);
+#if UNITY_UV_STARTS_AT_TOP
+       ndc.y *= -1;
+#endif
+    float4 depthToWS = mul(UNITY_MATRIX_I_VP, ndc);
+    depthToWS /= depthToWS.w;
+    return depthToWS;
+}
+
+[numthreads(8,8,1)]
+void SSPRCompute(uint3 id : SV_DispatchThreadID)
+{
+    _SSPRTexture[id.xy] = float4(0, 0, 0, 0);
+    _SSPRHeightBuffer[id.xy] = HALF_MAX;
+    
+    if (id.x > (uint)_SSPRSize.x || id.y > (uint)_SSPRSize.y)
+    {
+        return;
+    }
+
+    float2 uv = float2(id.xy) * _SSPRSize.zw;
+    float4 depthToWS = DepthToPositionWS(uv);
+
+    if (depthToWS.y < 0){return; }
+
+    float4 prWS = depthToWS;
+    prWS.y = -prWS.y;
+    
+    float4 prHClip = TransformWorldToHClip(prWS.xyz);
+    float4 prSrcPos = ComputeScreenPos(prHClip);
+    float2 prUV = prSrcPos.xy / prSrcPos.w;
+
+    if (any(prUV) < 0 || any(prUV) > 1){return; }
+    prUV *= _SSPRSize.xy;
+
+    if (depthToWS.y > _SSPRHeightBuffer[prUV])
+    {
+        return;
+    }
+    _SSPRHeightBuffer[prUV] = depthToWS.y;
+
+    float3 color = _CameraOpaqueTexture.SampleLevel(sampler_CameraOpaqueTexture, uv, 0).r;
+    
+    _SSPRTexture[prUV] = float4(color, 1);
+}
+
+[numthreads(8,8,1)]
+void SSPRHole(uint3 id : SV_DispatchThreadID)
+{
+    uint2 uv = id.xy * 2;
+
+    if (uv.x > (uint)_SSPRSize.y || uv.y > (uint)_SSPRSize.y) {return; }
+
+    float4 currentCol = _SSPRTexture[uv + float2(0 , 0)];
+    float4 rightCol = _SSPRTexture[uv + float2(1 , 0)];
+    float4 downCol = _SSPRTexture[uv + float2(0 , 1)];
+    float4 rightDownCol = _SSPRTexture[uv + float2(1 , 1)];
+
+    float4 pixelCol = currentCol;
+    pixelCol = pixelCol.a > rightCol.a ? pixelCol : rightCol;
+    pixelCol = pixelCol.a > downCol.a ? pixelCol : downCol;
+    pixelCol = pixelCol.a > rightDownCol.a ? pixelCol : rightDownCol;
+
+    _SSPRTexture[uv + float2(0 , 0)] = pixelCol;
+    _SSPRTexture[uv + float2(1 , 0)] = pixelCol;
+    _SSPRTexture[uv + float2(0 , 1)] = pixelCol;
+    _SSPRTexture[uv + float2(1 , 1)] = pixelCol;
+}
