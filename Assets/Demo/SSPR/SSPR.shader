@@ -57,7 +57,7 @@ Shader "RoXami/Example/UnlitShaderExample" {
 				half2 screenUV = IN.srcPos.xy / IN.srcPos.w;
 				half4 baseMap = SAMPLE_TEXTURE2D(_SSPRTexture, sampler_SSPRTexture, screenUV);
 
-				return half4(baseMap.rgb , 1);
+				return baseMap;
 			}
 			ENDHLSL
 		}

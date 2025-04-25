@@ -21,14 +21,16 @@ public class SSPRFeature : ScriptableRendererFeature
 
         public Material[] materials;
         public ComputeShader compute;
+        public int planHeight;
         int kernelSSPR;
         int kernelSSPRHole;
 
         // 构造函数传入shader和计算着色器脚本
-        public SSPRRenderPass(Material[] materials, ComputeShader compute, RenderPassEvent evt)
+        public SSPRRenderPass(Material[] materials, ComputeShader compute, int planHeight, RenderPassEvent evt)
         {
             this.materials = materials;
             this.compute = compute;
+            this.planHeight = planHeight;
             this.renderPassEvent = evt;
         }
 
@@ -44,6 +46,8 @@ public class SSPRFeature : ScriptableRendererFeature
             var cameraDescriptor = renderingData.cameraData.cameraTargetDescriptor;
             cameraDescriptor.enableRandomWrite = true;
             cameraDescriptor.msaaSamples = 1;
+            cameraDescriptor.sRGB = false;
+            cameraDescriptor.colorFormat = RenderTextureFormat.ARGB32;
 
             // 创建临时RT并获取其标识符
             cmd.GetTemporaryRT(ssprTexID, cameraDescriptor, FilterMode.Bilinear);
@@ -72,7 +76,7 @@ public class SSPRFeature : ScriptableRendererFeature
             int height = renderingData.cameraData.camera.pixelHeight;
 
             // 设置计算着色器参数
-            cmd.SetComputeFloatParam(compute, "_height", height);
+            cmd.SetComputeFloatParam(compute, "_height", planHeight);
             cmd.SetComputeVectorParam(compute, "_SSPRSize", new Vector4(width, height, 1 / (float)width, 1 / (float)height));
             cmd.SetComputeTextureParam(compute, kernelSSPR, "_CameraDepthTexture", depthTex);
             cmd.SetComputeTextureParam(compute, kernelSSPR, "_CameraOpaqueTexture", colorTex);
@@ -99,7 +103,7 @@ public class SSPRFeature : ScriptableRendererFeature
 
     public override void Create()
     {
-        ssprPass = new SSPRRenderPass(settings.materials, settings.compute, RenderPassEvent.AfterRenderingOpaques);
+        ssprPass = new SSPRRenderPass(settings.materials, settings.compute,settings.height, RenderPassEvent.AfterRenderingOpaques);
     }
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
@@ -111,11 +115,14 @@ public class SSPRFeature : ScriptableRendererFeature
     {
         public Material[] materials;
         public ComputeShader compute;
+        public int height;
 
-        public SSPRSettings(Material[] materials, ComputeShader compute)
+        public SSPRSettings(Material[] materials, ComputeShader compute, int height)
         {
             this.materials = materials;
             this.compute = compute;
+            this.height = height;
+            this.height = height;
         }
     }
 }

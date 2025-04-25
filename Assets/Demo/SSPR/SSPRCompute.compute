@@ -32,18 +32,15 @@ void SSPRCompute(uint3 id : SV_DispatchThreadID)
     _SSPRTexture[id.xy] = float4(0, 0, 0, 0);
     _SSPRHeightBuffer[id.xy] = HALF_MAX;
     
-    if (id.x > (uint)_SSPRSize.x || id.y > (uint)_SSPRSize.y)
-    {
-        return;
-    }
+    if (id.x > (uint)_SSPRSize.x || id.y > (uint)_SSPRSize.y) {return; }
 
     float2 uv = float2(id.xy) * _SSPRSize.zw;
     float4 depthToWS = DepthToPositionWS(uv);
 
-    if (depthToWS.y < 0){return; }
+    if (depthToWS.y < _height){return; }
 
     float4 prWS = depthToWS;
-    prWS.y = -prWS.y;
+    prWS.y = _height - (prWS.y - _height);
     
     float4 prHClip = TransformWorldToHClip(prWS.xyz);
     float4 prSrcPos = ComputeScreenPos(prHClip);
@@ -52,36 +49,39 @@ void SSPRCompute(uint3 id : SV_DispatchThreadID)
     if (any(prUV) < 0 || any(prUV) > 1){return; }
     prUV *= _SSPRSize.xy;
 
-    if (depthToWS.y > _SSPRHeightBuffer[prUV])
+    float getBuffer = _SSPRHeightBuffer[prUV];
+    if (depthToWS.y > getBuffer)
     {
         return;
     }
     _SSPRHeightBuffer[prUV] = depthToWS.y;
 
-    float3 color = _CameraOpaqueTexture.SampleLevel(sampler_CameraOpaqueTexture, uv, 0).r;
+    float4 color = _CameraOpaqueTexture.SampleLevel(sampler_CameraOpaqueTexture, uv, 0);
     
-    _SSPRTexture[prUV] = float4(color, 1);
+    _SSPRTexture[prUV] = color;
 }
 
 [numthreads(8,8,1)]
 void SSPRHole(uint3 id : SV_DispatchThreadID)
 {
-    uint2 uv = id.xy * 2;
+    const float pixelCount = 2;
+
+    uint2 uv = id.xy * pixelCount;
 
     if (uv.x > (uint)_SSPRSize.y || uv.y > (uint)_SSPRSize.y) {return; }
 
-    float4 currentCol = _SSPRTexture[uv + float2(0 , 0)];
-    float4 rightCol = _SSPRTexture[uv + float2(1 , 0)];
-    float4 downCol = _SSPRTexture[uv + float2(0 , 1)];
-    float4 rightDownCol = _SSPRTexture[uv + float2(1 , 1)];
+    float4 pixelColors[ pixelCount * pixelCount];
+    float4 sampleColor = 0;
 
-    float4 pixelCol = currentCol;
-    pixelCol = pixelCol.a > rightCol.a ? pixelCol : rightCol;
-    pixelCol = pixelCol.a > downCol.a ? pixelCol : downCol;
-    pixelCol = pixelCol.a > rightDownCol.a ? pixelCol : rightDownCol;
+    for (int i = 0 ; i < pixelCount * pixelCount ; i++)
+    {
+        pixelColors[i] = _SSPRTexture[uv + float2(i % pixelCount , i / pixelCount)];
+        sampleColor = pixelColors[i].a > sampleColor.a ? pixelColors[i] : sampleColor;
+    }
 
-    _SSPRTexture[uv + float2(0 , 0)] = pixelCol;
-    _SSPRTexture[uv + float2(1 , 0)] = pixelCol;
-    _SSPRTexture[uv + float2(0 , 1)] = pixelCol;
-    _SSPRTexture[uv + float2(1 , 1)] = pixelCol;
+    for (int j = 0 ; j < pixelCount * pixelCount ; j++)
+    {
+        _SSPRTexture[uv + float2(j % pixelCount , j / pixelCount)] = 
+        pixelColors[j].a > 0 ? pixelColors[j] : sampleColor;
+    }
 }
